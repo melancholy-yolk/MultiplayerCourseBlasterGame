@@ -12,11 +12,16 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "BlasterAnimInstance.h"
+#include "Blaster/Blaster.h"
+#include "Blaster/GameMode/BlasterGameMode.h"
+#include "Blaster/PlayerController/BlaserPlayerController.h"
 
 ABlasterCharacter::ABlasterCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetMesh());
 	CameraBoom->TargetArmLength = 600.0f;
@@ -37,7 +42,9 @@ ABlasterCharacter::ABlasterCharacter()
 
 	GetCharacterMovement()->NavAgentProps.bCanCrouch = true;
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 850.f);
 
 	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
@@ -45,18 +52,73 @@ ABlasterCharacter::ABlasterCharacter()
 	MinNetUpdateFrequency = 33.f;
 }
 
-void ABlasterCharacter::BeginPlay()
+void ABlasterCharacter::OnRep_ReplicatedMovement()
+{
+	Super::OnRep_ReplicatedMovement();
+	// if(GetLocalRole() == ENetRole::ROLE_SimulatedProxy)
+	// {
+	 	SimulatedProxiesTurn();
+	// }
+	TimeSinceLastMovementReplication = 0;
+}
+
+void ABlasterCharacter::Eliminate()
+{
+	MulticastEliminate();
+	GetWorldTimerManager().SetTimer(
+		ElimTimer,
+		this,
+		&ABlasterCharacter::ElimTimerFinished,
+		ElimDelay
+	);
+}
+
+void ABlasterCharacter::MulticastEliminate_Implementation()
+{
+	bElimmed = true;
+	PlayElimMontage();
+}
+
+void ABlasterCharacter::ElimTimerFinished()
+{
+	ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+	if (BlasterGameMode)
+	{
+		BlasterGameMode->RequestRespawn(this, Controller);
+	}
+}
+
+void ABlasterCharacter::BeginPlay() 
 {
 	Super::BeginPlay();
-	
+
+	UpdateHUDHealth();
+	if (HasAuthority())
+	{
+		OnTakeAnyDamage.AddDynamic(this, &ABlasterCharacter::ReceiveDamage);
+	}
 }
 
 void ABlasterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	//每帧计算驱动AimOffse的属性值
-	AimOffset(DeltaTime);
+	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	{
+		AimOffset(DeltaTime);
+	}
+	else
+	{
+		// AO_Yaw每秒计算5次
+		TimeSinceLastMovementReplication += DeltaTime;
+		if (TimeSinceLastMovementReplication > 0.25f)
+		{
+			OnRep_ReplicatedMovement();
+		}
+		CalculateAO_Pitch();// AO_Pitch需要每帧计算
+	}
+	
+	HideCameraIfCharacterClose();
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -100,11 +162,64 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 	}
 }
 
+void ABlasterCharacter::PlayElimMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && ElimMontage)
+	{
+		AnimInstance->Montage_Play(ElimMontage);
+	}
+}
+
+void ABlasterCharacter::PlayHitReactMontage()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (AnimInstance && HitReactMontage)
+	{
+		AnimInstance->Montage_Play(HitReactMontage);
+		FName SectionName("FromFront");
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
+void ABlasterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+	AController* InstigatorController, AActor* DamageCauser)
+{
+	if(bElimmed) return;
+	
+	Health = FMath::Clamp(Health - Damage, 0.f, MaxHealth);
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+
+	if (Health == 0.f)
+	{
+		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+		if (BlasterGameMode)
+		{
+			BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+			ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
+			BlasterGameMode->PlayerEliminated(this, BlasterPlayerController, AttackerController);
+		}
+	}
+}
+
+void ABlasterCharacter::UpdateHUDHealth()
+{
+	BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->SetHUDHealth(Health, MaxHealth);
+	}
+}
+
 void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, OverlappingWeapon, COND_OwnerOnly);
+	DOREPLIFETIME(ABlasterCharacter, Health);
 }
 
 void ABlasterCharacter::MoveForward(float Value)
@@ -128,28 +243,16 @@ void ABlasterCharacter::MoveRight(float Value)
 	}
 }
 
-/**
- * @brief 左右看
- * @param Value 
- */
 void ABlasterCharacter::Turn(float Value)
 {
 	AddControllerYawInput(Value);
 }
 
-/**
- * @brief 上下看
- * @param Value 
- */
 void ABlasterCharacter::LookUp(float Value)
 {
 	AddControllerPitchInput(Value);
 }
 
-/**
- * 按下键盘E键
- * @brief 
- */
 void ABlasterCharacter::EquipButtonPressed()
 {
 	if (Combat)
@@ -165,10 +268,6 @@ void ABlasterCharacter::EquipButtonPressed()
 	}
 }
 
-/**
- * @brief 只会在server上执行，客户端Actor的RPC调用使得服务器上对应Actor的该函数被执行
- * 一般逻辑时：客户端玩家按键，调用RPC，服务器上执行RPC回调，进行一些权威性操作（会进行数值计算），这些数值改变会同步到各个客户端
- */
 void ABlasterCharacter::ServerEquipButtonPressed_Implementation()
 {
 	if (Combat)
@@ -211,15 +310,22 @@ void ABlasterCharacter::AimButtonReleased()
  */
 void ABlasterCharacter::AimOffset(float DeltaTime)
 {
+	// 实时显示角色forward向量
+	FVector DebugLineStart = GetActorLocation() + FVector::UnitZ();
+	FVector DebugLineEnd = DebugLineStart + GetActorForwardVector() * 300.f;
+	DrawDebugLine(GetWorld(), DebugLineStart, DebugLineEnd, FColor::Blue, false);
+	
 	if(Combat && Combat->EquippedWeapon == nullptr) return;
 	
-	FVector Velocity = GetVelocity();
-	Velocity.Z = 0.f;
-	float Speed = Velocity.Size();
+	float Speed = CalculateSpeed();
 	bool bIsInAir = GetCharacterMovement()->IsFalling();
 
+	// 角色拿枪在原地站立时 角色本身的旋转角度是与Controller保持一致的 但是我们将角色的RootBone反向旋转相应的角度 看起来角色似乎不会旋转
 	if (Speed == 0.f && !bIsInAir) // standing still, not jumping
 	{
+		bRotateRootBone = true;
+		// StartingAimRotation为角色停止移动那一帧面朝方向
+		// GetBaseAimRotation()为角色此帧面朝方向（Controller朝向）
 		FRotator CurrentAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 		FRotator DeltaAimRotation = UKismetMathLibrary::NormalizedDeltaRotator(CurrentAimRotation,StartingAimRotation);
 		AO_Yaw = DeltaAimRotation.Yaw;
@@ -227,22 +333,31 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 		{
 			InterpAO_Yaw = AO_Yaw;
 		}
-		//角色模型旋转与玩家瞄准方向同步，但是我们在动画蓝图中使用RotateRootBone节点将模型RootBone旋转了负的AO_Yaw值，使得最终两种旋转相互抵消
+		//角色模型旋转与玩家瞄准方向同步
+		//但是我们在动画蓝图中使用RotateRootBone节点将模型RootBone旋转了负的AO_Yaw值，使得最终两种旋转相互抵消
 		//想要实现旋转，可以减小AO_Yaw的值使得RotateRootBone不能完全抵消bUseControllerRotationYaw带来的影响
 		bUseControllerRotationYaw = true;
 		TurnInPlace(DeltaTime);
 	}
 	if (Speed > 0.f || bIsInAir) // running, or jumping
 	{
+		bRotateRootBone = false;
 		StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 		AO_Yaw = 0.f;
 		bUseControllerRotationYaw = true;
 		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 	}
+	
+	CalculateAO_Pitch();
+}
+
+void ABlasterCharacter::CalculateAO_Pitch()
+{
 	AO_Pitch = GetBaseAimRotation().Pitch;
+	
 	if (HasAuthority() && !IsLocallyControlled()) // the version of character controlled by client on the server
 	{
-		UE_LOG(LogTemp, Warning, TEXT("AO_Pitch: %f"), AO_Pitch);
+		//UE_LOG(LogTemp, Warning, TEXT("AO_Pitch: %f"), AO_Pitch);
 	}
 	//矫正由于网络传输压缩产生的错误
 	if (AO_Pitch > 90.f && !IsLocallyControlled())
@@ -252,6 +367,45 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 		FVector2D OutRange(-90.f, 0.f);
 		AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, AO_Pitch);
 	}
+}
+
+void ABlasterCharacter::SimulatedProxiesTurn()
+{
+	if (Combat == nullptr || Combat->EquippedWeapon == nullptr) return;
+	
+	bRotateRootBone = false;
+
+	// fix issue：快速转身跑时出现滑步
+	float Speed = CalculateSpeed();
+	if (Speed > 0.f)
+	{
+		TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
+	}
+	
+	ProxyRotationLastFrame = ProxyRotation;
+	ProxyRotation = GetActorRotation();
+	ProxyYaw = UKismetMathLibrary::NormalizedDeltaRotator(ProxyRotation, ProxyRotationLastFrame).Yaw;
+
+	//UE_LOG(LogTemp, Warning, TEXT("ProxyYaw: %f"), ProxyYaw);
+	
+	if (FMath::Abs(ProxyYaw) > TurnThreshold)
+	{
+		if (ProxyYaw > TurnThreshold)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_Right;
+		}
+		else if (ProxyYaw < -TurnThreshold)
+		{
+			TurningInPlace = ETurningInPlace::ETIP_Left;
+		}
+		else
+		{
+			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		}
+		return;
+	}
+	TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
 
 void ABlasterCharacter::Jump()
@@ -283,12 +437,13 @@ void ABlasterCharacter::FireButtonReleased()
 }
 
 /**
- * @brief 角色在原地站立,未行走或者跳跃时，AimOffset左右超过90度时，就开始播放原地旋转动画
+ * @brief 角色在原地站立，未行走或者跳跃时，玩家左右旋转摄像机，AimOffset左右超过90度时，就开始播放原地旋转动画
  * @param DeltaTime 
  */
 void ABlasterCharacter::TurnInPlace(float DeltaTime)
 {
-	UE_LOG(LogTemp, Warning, TEXT("AO_Yaw: %f"), AO_Yaw);
+	//UE_LOG(LogTemp, Warning, TEXT("AO_Yaw: %f"), AO_Yaw);
+	// 可以理解为角色左右扭头超过90度时，就会旋转身体
 	if (AO_Yaw > 90.f)
 	{
 		TurningInPlace = ETurningInPlace::ETIP_Right;
@@ -306,6 +461,55 @@ void ABlasterCharacter::TurnInPlace(float DeltaTime)
 			TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 			StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 		}
+	}
+}
+
+void ABlasterCharacter::HideCameraIfCharacterClose()
+{
+	if(!IsLocallyControlled()) return;
+	if ((FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < CameraThreshold)
+	{
+		GetMesh()->SetVisibility(false);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+		if (Combat && Combat->EquippedWeapon && Combat->EquippedWeapon->GetWeaponMesh())
+		{
+			Combat->EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+	}
+}
+
+float ABlasterCharacter::CalculateSpeed()
+{
+	FVector Velocity = GetVelocity();
+	Velocity.Z = 0.f;
+	return Velocity.Size();
+}
+
+void ABlasterCharacter::OnRep_Health()
+{
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+}
+
+void ABlasterCharacter::UpdateDissolveMaterial(float DissolveValue)
+{
+	
+}
+
+void ABlasterCharacter::StartDissolve()
+{
+	DissolveTrack.BindDynamic(this, &ABlasterCharacter::UpdateDissolveMaterial);
+	if (DissolveCurve)
+	{
+		DissolveTimeline->AddInterpFloat(DissolveCurve, DissolveTrack);
+		DissolveTimeline->Play();
 	}
 }
 

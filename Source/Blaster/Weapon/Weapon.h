@@ -53,7 +53,15 @@ public:
 
 	UPROPERTY(EditAnywhere)
 	float ZoomInterpSpeed = 20.f;
-	
+
+	/**
+	 * @brief Automatic Fire
+	 */
+	UPROPERTY(EditAnywhere, Category = Combat)
+	float FireDelay = .15f;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	bool bAutomatic = true;
 protected:
 	virtual void BeginPlay() override;
 
@@ -101,4 +109,6 @@ public:
 	void SetWeaponState(EWeaponState State);
 	FORCEINLINE USphereComponent* GetAreaSphere() const { return AreaSphere; }
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
+	FORCEINLINE float GetZoomedFOV() const { return ZoomedFOV; }
+	FORCEINLINE float GetZoomInterpSpeed() const { return ZoomInterpSpeed; }
 };

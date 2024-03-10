@@ -6,10 +6,12 @@
 #include "Blaster/Weapon/Weapon.h"
 #include "Blaster/BlasterTypes/TurningInPlace.h"
 #include "GameFramework/Character.h"
+#include "Blaster/Interfaces/InteractWithCrosshairsInterface.h"
+#include "Components/TimelineComponent.h"
 #include "BlasterCharacter.generated.h"
 
 UCLASS()
-class BLASTER_API ABlasterCharacter : public ACharacter
+class BLASTER_API ABlasterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
 	GENERATED_BODY()
 
@@ -20,6 +22,11 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PostInitializeComponents() override;
 	void PlayFireMontage(bool bAiming);
+	void PlayElimMontage();
+	virtual void OnRep_ReplicatedMovement() override;
+	void Eliminate();
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastEliminate();
 protected:
 	virtual void BeginPlay() override;
 
@@ -31,10 +38,16 @@ protected:
 	void CrouchButtonPressed();
 	void AimButtonPressed();
 	void AimButtonReleased();
-	void AimOffset(float DeltaTime);
+	void AimOffset(float DeltaTime);//每帧计算驱动AimOffset的变量
+	void CalculateAO_Pitch();
+	void SimulatedProxiesTurn();
 	virtual void Jump() override;
 	void FireButtonPressed();
 	void FireButtonReleased();
+	void PlayHitReactMontage();
+	UFUNCTION()
+	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, class AController* InstigatorController, AActor* DamageCauser);
+	void UpdateHUDHealth();
 	
 private:
 	UPROPERTY(VisibleAnywhere, Category = Camera)
@@ -45,19 +58,10 @@ private:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta=(AllowPrivateAccess="true"))
     class UWidgetComponent* OverheadWidget;
-
-	/**
-	 * @brief Variable Replication
-	 * 角色脚下触碰到的武器
-	 * Server上，会对进入Weapon触发器的Character的这个属性赋值为该武器本身，变量同步到客户端
-	 */
-	UPROPERTY(ReplicatedUsing=OnRep_OverlappingWeapon)
+	
+	UPROPERTY(ReplicatedUsing = OnRep_OverlappingWeapon)
 	AWeapon* OverlappingWeapon;
 
-	/**
-	 * @brief 变量同步回调函数
-	 * @param LastWeapon 该同步变量被同步之前的值
-	 */
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
 	
@@ -73,6 +77,7 @@ private:
 	UFUNCTION(Server, Reliable)
 	void ServerEquipButtonPressed();
 
+	// AimOffset
 	float AO_Yaw;
 	float InterpAO_Yaw;
 	float AO_Pitch;
@@ -83,6 +88,73 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = Combat)
 	class UAnimMontage* FireWeaponMontage;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	UAnimMontage* HitReactMontage;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	UAnimMontage* ElimMontage;
+
+	// 相机与角色距离过近时，隐藏角色的显示
+	void HideCameraIfCharacterClose();
+
+	UPROPERTY(EditAnywhere)
+	float CameraThreshold = 200.f;
+
+	// fix issue:
+	// simulated proxy的Turn In Place会出现jitter抖动的情况
+	// simulated proxy 动画蓝图中不会通过RotateRootBone节点，来实现角色Turn In Place
+	bool bRotateRootBone;
+	float TurnThreshold = 0.5f;
+	FRotator ProxyRotationLastFrame;
+	FRotator ProxyRotation;
+	float ProxyYaw;
+	float TimeSinceLastMovementReplication;
+	float CalculateSpeed();
+
+	/*
+	 * Player Stats
+	 */
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	float MaxHealth = 100.f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Health, VisibleAnywhere, Category = "Player Stats")
+	float Health = 100.f;
+
+	UFUNCTION()
+	void OnRep_Health();
+
+	/**
+	 * @brief Eliminated
+	 */
+	class ABlasterPlayerController* BlasterPlayerController;
+
+	bool bElimmed = false;
+
+	FTimerHandle ElimTimer;
+
+	UPROPERTY(EditDefaultsOnly)
+	float ElimDelay = 3.f;
+
+	void ElimTimerFinished();
+
+	/**
+	 * @brief Dissolve Effect
+	 */
+	UPROPERTY(VisibleAnywhere)
+	UTimelineComponent* DissolveTimeline;
+	FOnTimelineFloat DissolveTrack;
+
+	UPROPERTY(EditAnywhere)
+	UCurveFloat* DissolveCurve;
+
+	UFUNCTION()
+	void UpdateDissolveMaterial(float DissolveValue);
+
+	void StartDissolve();
+
+	UPROPERTY(VisibleAnywhere, Category = Elim)
+	UMaterialInstanceDynamic* DynamicDissolveMaterialInstance;
 	
 public:	
 	void SetOverlappingWeapon(AWeapon* Weapon);
@@ -93,4 +165,7 @@ public:
 	AWeapon* GetEquippedWeapon();
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return TurningInPlace; }
 	FVector GetHitTarget() const;
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE bool ShouldRotateRootBone() const { return bRotateRootBone; }
+	FORCEINLINE bool IsElimmed() const { return bElimmed; }
 };

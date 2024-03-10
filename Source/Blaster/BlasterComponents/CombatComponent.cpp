@@ -1,12 +1,15 @@
 #include "CombatComponent.h"
-#include "Components/SphereComponent.h"
+#include "Blaster/Weapon/Weapon.h"
+#include "Blaster/Character/BlasterCharacter.h"
 #include "Engine/SkeletalMeshSocket.h"
+#include "Components/SphereComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
-#include "Net/UnrealNetwork.h"
-#include "Blaster/Character/BlasterCharacter.h"
+#include "DrawDebugHelpers.h"
 #include "Blaster/PlayerController/BlaserPlayerController.h"
-#include "Blaster/HUD/BlaserHUD.h"
+//#include "Blaster/HUD/BlaserHUD.h"
+#include "Camera/CameraComponent.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -31,6 +34,12 @@ void UCombatComponent::BeginPlay()
 	if (Character)
 	{
 		Character->GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed;
+		if (Character->GetFollowCamera())
+		{
+			DefaultFOV = Character->GetFollowCamera()->FieldOfView;
+			CurrentFOV = DefaultFOV;
+		}
+		
 	}
 }
 
@@ -38,14 +47,167 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	SetHUDCrosshairs(DeltaTime);
-
-	// This is only meaningful on autonomous proxies or on the locally controlled server character34
+	// This is only meaningful on autonomous proxies or on the locally controlled server character
 	if (Character && Character->IsLocallyControlled())
 	{
 		FHitResult HitResult;
 		TraceUnderCrosshairs(HitResult);
 		HitTarget = HitResult.ImpactPoint;
+
+		SetHUDCrosshairs(DeltaTime);
+		InterpFOV(DeltaTime);
+	}
+}
+
+void UCombatComponent::FireButtonPressed(bool bPressed)
+{
+	bFireButtonPressed = bPressed;
+	if (bFireButtonPressed)
+	{
+		Fire();
+	}
+}
+
+void UCombatComponent::Fire()
+{
+	if(EquippedWeapon == nullptr || Character == nullptr) return;
+	if (bCanFire)
+	{
+		bCanFire = false;
+		ServerFire(HitTarget);
+		if(EquippedWeapon)
+		{
+			CrosshairsShootingFactor = .75f;
+		}
+		StartFireTimer();
+	}
+}
+
+void UCombatComponent::StartFireTimer()
+{
+	if(EquippedWeapon == nullptr || Character == nullptr) return;
+	Character->GetWorldTimerManager().SetTimer(
+		FireTimer,
+		this,
+		&UCombatComponent::FireTimerFinished,
+		EquippedWeapon->FireDelay
+	);
+}
+
+void UCombatComponent::FireTimerFinished()
+{
+	if(EquippedWeapon == nullptr || Character == nullptr) return;
+	bCanFire = true;
+	if (bFireButtonPressed && EquippedWeapon->bAutomatic)
+	{
+		Fire();
+	}
+}
+
+void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
+{
+	MulticastFire(TraceHitTarget);
+}
+
+void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
+{
+	if(EquippedWeapon == nullptr) return;
+	if (Character)
+	{
+		Character->PlayFireMontage(bAiming);
+		// simulated proxies are not going to have a viewport and traceundercorssharis will not give us valid hit target on those simulated proxies
+		EquippedWeapon->Fire(TraceHitTarget);
+	}
+}
+
+//这个方法只会在server上执行 无论是server玩家直接调用，还是client玩家RPC调用
+void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
+{
+	if (Character == nullptr || WeaponToEquip == nullptr) return;
+
+	EquippedWeapon = WeaponToEquip;
+	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);// WeaponState变量会同步到客户端
+	const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
+	if (HandSocket)
+	{
+		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());//会通知到client
+	}
+	EquippedWeapon->SetOwner(Character);//会通知到client
+	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
+	Character->bUseControllerRotationYaw = true;
+}
+
+void UCombatComponent::OnRep_EquippedWeapon()
+{
+	if (EquippedWeapon && Character)
+	{
+		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
+		Character->bUseControllerRotationYaw = true;
+	}
+}
+
+void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
+{
+	FVector2D ViewportSize;
+	if (GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->GetViewportSize(ViewportSize);
+	}
+
+	FVector2D CrosshairLocation(ViewportSize.X / 2.f, ViewportSize.Y / 2.f);
+	FVector CrosshairWorldPosition;
+	FVector CrosshairWorldDirection;
+	bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
+		UGameplayStatics::GetPlayerController(this, 0),
+		CrosshairLocation,
+		CrosshairWorldPosition,
+		CrosshairWorldDirection
+		);
+
+	if (bScreenToWorld)
+	{
+		FVector Start = CrosshairWorldPosition;
+
+		// 将TraceLine的Start放置到角色身前，修复可以瞄准角色自身或角色身后玩家的bug
+		if (Character)
+		{
+			float DistanceToCharacter = (Character->GetActorLocation() - Start).Size();
+			Start += CrosshairWorldDirection * (DistanceToCharacter + 100.f);
+			DrawDebugSphere(GetWorld(), Start, 16.f, 12, FColor::Red, false);
+		}
+		
+		FVector End = Start + CrosshairWorldDirection * TRACE_LENGTH;
+		GetWorld()->LineTraceSingleByChannel(
+			TraceHitResult,
+			Start,
+			End,
+			ECollisionChannel::ECC_Visibility
+		);
+		
+		if (!TraceHitResult.bBlockingHit)
+		{
+			TraceHitResult.ImpactPoint = End;
+		}
+		else
+		{
+			DrawDebugSphere(
+				GetWorld(),
+				TraceHitResult.ImpactPoint,
+				12.f,
+				12,
+				FColor::Red
+			);
+		}
+		
+		// 实现准星瞄准带有UInteractWithCrosshairsInterface接口Actor时，颜色变红
+		if (TraceHitResult.GetActor() && TraceHitResult.GetActor()->Implements<UInteractWithCrosshairsInterface>())
+		{
+			HUDPackage.CrosshairsColor = FLinearColor::Red;
+		}
+		else
+		{
+			HUDPackage.CrosshairsColor = FLinearColor::White;
+		}
 	}
 }
 
@@ -59,7 +221,7 @@ void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
 		HUD = HUD == nullptr ? Cast<ABlasterHUD>(Controller->GetHUD()) : HUD;
 		if (HUD)
 		{
-			FHUDPackage HUDPackage;
+			
 			if (EquippedWeapon)
 			{
 				HUDPackage.CrosshairsCenter = EquippedWeapon->CrosshairsCener;
@@ -95,11 +257,46 @@ void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
 			{
 				CrosshaiInAirFactor = FMath::FInterpTo(CrosshaiInAirFactor, 0.f, DeltaTime, 30.f);
 			}
+
+			if (bAiming)
+			{
+				CrosshairsAimFactor = FMath::FInterpTo(CrosshairsAimFactor, 0.58f, DeltaTime, 30.f);
+			}
+			else
+			{
+				CrosshairsAimFactor = FMath::FInterpTo(CrosshairsAimFactor, 0.f, DeltaTime, 30.f);
+			}
+
+			CrosshairsShootingFactor = FMath::FInterpTo(CrosshairsShootingFactor, 0.f, DeltaTime, 40.f);
 			
-			HUDPackage.CrosshairsSpread = CrosshairVelocityFactor + CrosshaiInAirFactor;
+			HUDPackage.CrosshairsSpread =
+				0.5f +
+				CrosshairVelocityFactor +
+					CrosshaiInAirFactor -
+						CrosshairsAimFactor +
+							CrosshairsShootingFactor;
 			
 			HUD->SetHUDPackage(HUDPackage);
 		}
+	}
+}
+
+void UCombatComponent::InterpFOV(float DeltaTime)
+{
+	if(EquippedWeapon == nullptr) return;
+
+	if (bAiming)
+	{
+		CurrentFOV = FMath::FInterpTo(CurrentFOV, EquippedWeapon->GetZoomedFOV(), DeltaTime, EquippedWeapon->GetZoomInterpSpeed());
+		
+	}
+	else
+	{
+		CurrentFOV = FMath::FInterpTo(CurrentFOV, DefaultFOV, DeltaTime, ZoomInterpSpeed);
+	}
+	if (Character && Character->GetFollowCamera())
+	{
+		Character->GetFollowCamera()->SetFieldOfView(CurrentFOV);
 	}
 }
 
@@ -125,103 +322,3 @@ void UCombatComponent::ServerSetAiming_Implementation(bool bIsAiming)
 		Character->GetCharacterMovement()->MaxWalkSpeed = bIsAiming ? AimWalkSpeed : BaseWalkSpeed;
 	}
 }
-
-void UCombatComponent::OnRep_EquippedWeapon()
-{
-	if (EquippedWeapon && Character)
-	{
-		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
-		Character->bUseControllerRotationYaw = true;
-	}
-}
-
-void UCombatComponent::FireButtonPressed(bool bPressed)
-{
-	bFireButtonPressed = bPressed;
-
-	if (bFireButtonPressed)
-	{
-		FHitResult HitResult;
-		TraceUnderCrosshairs(HitResult);
-		ServerFire(HitResult.ImpactPoint);
-	}
-}
-
-void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
-{
-	MulticastFire(TraceHitTarget);
-}
-
-void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
-{
-	if(EquippedWeapon == nullptr) return;
-	if (Character)
-	{
-		Character->PlayFireMontage(bAiming);
-		// simulated proxies are not going to have a viewport and traceundercorssharis will not give us valid hit target on those simulated proxies
-		EquippedWeapon->Fire(TraceHitTarget);
-	}
-}
-
-void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
-{
-	FVector2D ViewportSize;
-	if (GEngine && GEngine->GameViewport)
-	{
-		GEngine->GameViewport->GetViewportSize(ViewportSize);
-	}
-
-	FVector2D CrosshairLocation(ViewportSize.X / 2.f, ViewportSize.Y / 2.f);
-	FVector CrosshairWorldPosition;
-	FVector CrosshairWorldDirection;
-	bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
-		UGameplayStatics::GetPlayerController(this, 0),
-		CrosshairLocation,
-		CrosshairWorldPosition,
-		CrosshairWorldDirection
-		);
-
-	if (bScreenToWorld)
-	{
-		FVector Start = CrosshairWorldPosition;
-		FVector End = Start + CrosshairWorldDirection * TRACE_LENGTH;
-		GetWorld()->LineTraceSingleByChannel(
-			TraceHitResult,
-			Start,
-			End,
-			ECollisionChannel::ECC_Visibility
-		);
-		if (!TraceHitResult.bBlockingHit)
-		{
-			TraceHitResult.ImpactPoint = End;
-		}
-		else
-		{
-			DrawDebugSphere(
-				GetWorld(),
-				TraceHitResult.ImpactPoint,
-				12.f,
-				12,
-				FColor::Red
-			);
-		}
-	}
-}
-
-//这个方法只会在server上执行 无论是server玩家直接调用，还是client玩家RPC调用
-void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
-{
-	if (Character == nullptr || WeaponToEquip == nullptr) return;
-
-	EquippedWeapon = WeaponToEquip;
-	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);// WeaponState变量会同步到客户端
-	const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
-	if (HandSocket)
-	{
-		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());//会通知到client
-	}
-	EquippedWeapon->SetOwner(Character);//会通知到client
-	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
-	Character->bUseControllerRotationYaw = true;
-}
-

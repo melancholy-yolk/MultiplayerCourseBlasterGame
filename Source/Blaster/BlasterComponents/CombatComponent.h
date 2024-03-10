@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Blaster/HUD/BlaserHUD.h"
 #include "Components/ActorComponent.h"
 #include "CombatComponent.generated.h"
 
@@ -27,6 +28,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
+	void Fire();
 
 	void FireButtonPressed(bool bPressed);
 
@@ -67,10 +69,14 @@ private:
 	float CrosshairVelocityFactor;
 	// the amount that contributes to our crosshair spread based on IsFalling
 	float CrosshaiInAirFactor;
+	float CrosshairsAimFactor;
+	float CrosshairsShootingFactor;
 
 	// 对于每个客户端上的本地控制角色，每帧进行一次Trace，并将Trace结果存储到该变量，用于绘制DebugLine，来显示出枪口指向碰撞点的向量
 	FVector HitTarget;
 
+	FHUDPackage HUDPackage;
+	
 	/*
 	 * Aiming and FOV
 	 */
@@ -81,10 +87,22 @@ private:
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float ZoomedFOV = 30.f;
 
+	float CurrentFOV;
+	
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float ZoomInterpSpeed = 20.f;
 
 	void InterpFOV(float DeltaTime);
+
+	/** 
+	* Automatic Fire
+	*/
+	FTimerHandle FireTimer;
+	
+	bool bCanFire = true;
+	
+	void StartFireTimer();
+	void FireTimerFinished();
 	
 public:	
 	

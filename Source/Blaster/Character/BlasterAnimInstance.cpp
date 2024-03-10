@@ -35,17 +35,19 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	bIsCrouched = BlasterCharacter->bIsCrouched;
 	bAiming = BlasterCharacter->IsAiming();
 	TurningInPlace = BlasterCharacter->GetTurningInPlace();
+	bRotateRootBone = BlasterCharacter->ShouldRotateRootBone();
+	bElimmed = BlasterCharacter->IsElimmed();
 
 	// 角色速度方向与控制器方向的差，角色装备武器后，角色朝向始终与控制器方向一致
 	// 玩家按右键时差值为90 按左键时差值为-90 按后键时差值为180或-180 strafe
 	// zero, if our character is looking straight towards the world x axis direction and increase as we rotate to right
 	FRotator AimRotation = BlasterCharacter->GetBaseAimRotation();
 	FRotator MovementRotation = UKismetMathLibrary::MakeRotFromX(BlasterCharacter->GetVelocity());
-	if (!BlasterCharacter->HasAuthority() && !BlasterCharacter->IsLocallyControlled())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AimRotation Yaw %f: "), AimRotation.Yaw);
-		UE_LOG(LogTemp, Warning, TEXT("MovementRotation Yaw %f: "), MovementRotation.Yaw);
-	}
+	// if (!BlasterCharacter->HasAuthority() && !BlasterCharacter->IsLocallyControlled())
+	// {
+	// 	UE_LOG(LogTemp, Warning, TEXT("AimRotation Yaw %f: "), AimRotation.Yaw);
+	// 	UE_LOG(LogTemp, Warning, TEXT("MovementRotation Yaw %f: "), MovementRotation.Yaw);
+	// }
 	FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(MovementRotation, AimRotation);// 控制BlendSpace2D的Horizontal Axis, 角色朝向前方, Strafing 向左或向右移动
 	DeltaRotation = FMath::RInterpTo(DeltaRotation, DeltaRot, DeltaSeconds, 6.f);
 	YawOffset = DeltaRotation.Yaw;
@@ -81,15 +83,17 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		{
 			bLocallyControlled = true;
 			FTransform RightHandTransform = BlasterCharacter->GetMesh()->GetSocketTransform(FName("hand_r"), ERelativeTransformSpace::RTS_World);
-			RightHandRotation = UKismetMathLibrary::FindLookAtRotation(
+			// 修改角色拿枪的右手旋转，使得持枪朝向与瞄准方向一致，但存在瞄准目标快速从远切换到近时，右手旋转会出现跳变
+			FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(
 				RightHandTransform.GetLocation(),
 				RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - BlasterCharacter->GetHitTarget()));	
+			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaSeconds, 30.f);
 		}
 		
 		// 获取枪管枪口世界空间的X轴基向量
 		FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"), ERelativeTransformSpace::RTS_World);
 		FVector MuzzleX(FRotationMatrix(MuzzleTipTransform.GetRotation().Rotator()).GetUnitAxis(EAxis::X));
-		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), MuzzleTipTransform.GetLocation() + MuzzleX * 1000.f, FColor::Red);
-		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), BlasterCharacter->GetHitTarget(), FColor::Orange);
+		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), MuzzleTipTransform.GetLocation() + MuzzleX * 1000.f, FColor::Red);//枪口正前方方向
+		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), BlasterCharacter->GetHitTarget(), FColor::Green);//枪口到HitTarget
 	}
 }
