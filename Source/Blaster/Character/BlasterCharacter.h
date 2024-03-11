@@ -27,6 +27,7 @@ public:
 	void Eliminate();
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastEliminate();
+	virtual void Destroyed() override;
 protected:
 	virtual void BeginPlay() override;
 
@@ -158,6 +159,18 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = Elim)
 	UMaterialInstance* DissolveMaterialInstance;
+
+	/**
+	 * @brief Elim bot
+	 */
+	UPROPERTY(EditAnywhere)
+	UParticleSystem* ElimBotEffect;
+
+	UPROPERTY(VisibleAnywhere)
+	UParticleSystemComponent* ElimBotComponent;
+
+	UPROPERTY(EditAnywhere)
+	class USoundCue* ElimBotSound;
 	
 public:	
 	void SetOverlappingWeapon(AWeapon* Weapon);
