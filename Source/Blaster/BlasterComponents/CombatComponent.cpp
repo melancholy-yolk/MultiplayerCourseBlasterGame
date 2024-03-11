@@ -125,12 +125,28 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 {
 	if (Character == nullptr || WeaponToEquip == nullptr) return;
 
+	// 装备新武器之前，需要考虑当前是否已经装备了一件武器
+	// 若当前已经装备了一件武器，逻辑应该如何设计
+	// 当前武器掉落，还是当前武器放入后背
+
+	if (EquippedWeapon)
+	{
+		// ...
+		UE_LOG(LogTemp, Display, TEXT("current have been equipped a weapon : %s"), *EquippedWeapon->GetName());
+		return;
+	}
+
+	// WeaponState和Attach都会同步到客户端，但是不能保证同步到客户端的先后顺序
+	// 因为理想中的正常逻辑顺序是：
+	// WeaponState变量复制到客户端 OnRep_EquippedWeapon 被调用，Weapon的网格的物理模拟和重力被关闭，然后Attach到角色右手
+	// 若先Attach，由于物理模拟和重力开启，Attach后会出现bug
+	// 为了保证该逻辑在Client不产生bug，需要在 OnRep_EquippedWeapon 中，Weapon的网格的物理模拟和重力被关闭后，再次尝试Attach
 	EquippedWeapon = WeaponToEquip;
-	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);// WeaponState变量会同步到客户端
+	EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);// WeaponState变量会同步到客户端 Variable Replication RepNotify
 	const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
 	if (HandSocket)
 	{
-		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());//会通知到client
+		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());// propagates down to clients
 	}
 	EquippedWeapon->SetOwner(Character);//会通知到client
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
@@ -141,6 +157,13 @@ void UCombatComponent::OnRep_EquippedWeapon()
 {
 	if (EquippedWeapon && Character)
 	{
+		EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);// WeaponState变量会同步到客户端 Variable Replication RepNotify
+		const USkeletalMeshSocket* HandSocket = Character->GetMesh()->GetSocketByName(FName("RightHandSocket"));
+		if (HandSocket)
+		{
+			HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());// propagates down to clients
+		}
+		
 		Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 		Character->bUseControllerRotationYaw = true;
 	}

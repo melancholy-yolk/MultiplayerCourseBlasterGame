@@ -155,6 +155,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = Elim)
 	UMaterialInstanceDynamic* DynamicDissolveMaterialInstance;
+
+	UPROPERTY(EditAnywhere, Category = Elim)
+	UMaterialInstance* DissolveMaterialInstance;
 	
 public:	
 	void SetOverlappingWeapon(AWeapon* Weapon);
