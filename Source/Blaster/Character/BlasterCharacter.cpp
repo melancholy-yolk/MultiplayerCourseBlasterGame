@@ -182,7 +182,7 @@ void ABlasterCharacter::Tick(float DeltaTime)
 	}
 	
 	HideCameraIfCharacterClose();
-	PollInit();
+	//PollInit();
 }
 
 void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -286,6 +286,7 @@ void ABlasterCharacter::PollInit()
 		if (BlasterPlayerState)
 		{
 			BlasterPlayerState->AddToScore(0.f);
+			BlasterPlayerState->AddToDefeats(0);
 		}
 	}
 }
@@ -582,12 +583,23 @@ void ABlasterCharacter::UpdateDissolveMaterial(float DissolveValue)
 	}
 }
 
+void ABlasterCharacter::UpdateDefeatedUI(float Alpha)
+{
+	BlasterPlayerController = BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : BlasterPlayerController;
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->SetHUDDefeatedText(Alpha);
+	}
+}
+
 void ABlasterCharacter::StartDissolve()
 {
 	DissolveTrack.BindDynamic(this, &ABlasterCharacter::UpdateDissolveMaterial);
-	if (DissolveCurve && DissolveTimeline)
+	DefeatedUITrack.BindDynamic(this, &ABlasterCharacter::UpdateDefeatedUI);
+	if (DissolveCurve && DissolveTimeline && DefeatedUICurve)
 	{
 		DissolveTimeline->AddInterpFloat(DissolveCurve, DissolveTrack);
+		DissolveTimeline->AddInterpFloat(DefeatedUICurve, DefeatedUITrack);
 		DissolveTimeline->Play();
 	}
 }

@@ -129,6 +129,7 @@ private:
 	/**
 	 * @brief Eliminated
 	 */
+	UPROPERTY()
 	class ABlasterPlayerController* BlasterPlayerController;
 
 	bool bElimmed = false;
@@ -146,12 +147,19 @@ private:
 	UPROPERTY(VisibleAnywhere)
 	UTimelineComponent* DissolveTimeline;
 	FOnTimelineFloat DissolveTrack;
+	FOnTimelineFloat DefeatedUITrack;
 
 	UPROPERTY(EditAnywhere)
 	UCurveFloat* DissolveCurve;
 
+	UPROPERTY(EditAnywhere)
+	UCurveFloat* DefeatedUICurve;
+
 	UFUNCTION()
 	void UpdateDissolveMaterial(float DissolveValue);
+
+	UFUNCTION()
+	void UpdateDefeatedUI(float Alpha);
 
 	void StartDissolve();
 
@@ -173,6 +181,7 @@ private:
 	UPROPERTY(EditAnywhere)
 	class USoundCue* ElimBotSound;
 
+	UPROPERTY()
 	class ABlasterPlayerState* BlasterPlayerState;
 public:	
 	void SetOverlappingWeapon(AWeapon* Weapon);
