@@ -131,9 +131,7 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 
 	if (EquippedWeapon)
 	{
-		// ...
-		UE_LOG(LogTemp, Display, TEXT("current have been equipped a weapon : %s"), *EquippedWeapon->GetName());
-		return;
+		EquippedWeapon->Dropped();
 	}
 
 	// WeaponState和Attach都会同步到客户端，但是不能保证同步到客户端的先后顺序
@@ -149,6 +147,7 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 		HandSocket->AttachActor(EquippedWeapon, Character->GetMesh());// propagates down to clients
 	}
 	EquippedWeapon->SetOwner(Character);//会通知到client
+	EquippedWeapon->SetHUDAmmo();// 更新HUD显示子弹数量
 	Character->GetCharacterMovement()->bOrientRotationToMovement = false;
 	Character->bUseControllerRotationYaw = true;
 }

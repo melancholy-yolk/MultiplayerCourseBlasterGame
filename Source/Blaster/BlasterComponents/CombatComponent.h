@@ -21,6 +21,7 @@ public:
 	void EquipWeapon(class AWeapon* WeaponToEquip);
 protected:
 	virtual void BeginPlay() override;
+	
 	void SetAiming(bool bIsAiming);
 
 	UFUNCTION(Server, Reliable)
@@ -28,6 +29,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
+	
 	void Fire();
 
 	void FireButtonPressed(bool bPressed);
@@ -101,7 +103,8 @@ private:
 	* Automatic Fire
 	*/
 	FTimerHandle FireTimer;
-	
+
+	// 控制开火间隔 每次开火后一定时间内无法再次开火
 	bool bCanFire = true;
 	
 	void StartFireTimer();

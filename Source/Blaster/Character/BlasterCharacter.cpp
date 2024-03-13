@@ -85,6 +85,12 @@ void ABlasterCharacter::Eliminate()
 
 void ABlasterCharacter::MulticastEliminate_Implementation()
 {
+	//角色死亡时，持有的武器会掉落，此时需要刷新HUD上的Ammo为0
+	if (BlasterPlayerController)
+	{
+		BlasterPlayerController->SetHUDWeaponAmmo(0);
+	}
+	
 	bElimmed = true;
 	PlayElimMontage();
 
