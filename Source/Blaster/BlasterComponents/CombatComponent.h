@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Blaster/BlasterTypes/CombatState.h"
 #include "Blaster/HUD/BlaserHUD.h"
 #include "Blaster/Weapon/WeaponTypes.h"
 #include "Components/ActorComponent.h"
@@ -20,6 +21,7 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	void EquipWeapon(class AWeapon* WeaponToEquip);
+	void Reload();
 protected:
 	virtual void BeginPlay() override;
 	
@@ -31,9 +33,9 @@ protected:
 	UFUNCTION()
 	void OnRep_EquippedWeapon();
 	
-	void Fire();
-
 	void FireButtonPressed(bool bPressed);
+
+	void Fire();
 
 	UFUNCTION(Server, Reliable)
 	void ServerFire(const FVector_NetQuantize& TraceHitTarget);
@@ -44,6 +46,11 @@ protected:
 	void TraceUnderCrosshairs(FHitResult& TraceHitResult);
 
 	void SetHUDCrosshairs(float DeltaTime);
+
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
+
+	void HandleReload();
 	
 private:
 	UPROPERTY()
@@ -120,12 +127,19 @@ private:
 	UFUNCTION()
 	void OnRep_CarriedAmmo();
 
+	// 保存玩家身上初始携带的对应每种枪类型的子弹数量
 	TMap<EWeaponType, int32> CarriedAmmoMap;
 
 	UPROPERTY(EditAnywhere)
 	int32 StartingARAmmo = 30;
 	
 	void InitializeCarriedAmmo();
+
+	UPROPERTY(ReplicatedUsing = OnRep_CombatState)
+	ECombatState CombatState = ECombatState::ECS_Unoccupied;
+
+	UFUNCTION()
+	void OnRep_CombatState();
 	
 public:	
 	

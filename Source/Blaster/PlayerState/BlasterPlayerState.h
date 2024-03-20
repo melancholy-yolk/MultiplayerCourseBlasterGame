@@ -20,6 +20,7 @@ public:
 	 * @brief Replication notifies
 	 */
 	virtual void OnRep_Score() override;
+	
 	UFUNCTION()
 	virtual void OnRep_Defeats();
 	
