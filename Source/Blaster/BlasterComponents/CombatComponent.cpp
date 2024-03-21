@@ -195,9 +195,18 @@ void UCombatComponent::Reload()
 	// 当前弹夹子弹不满
 	// 当前备用弹药不为空
 	
-	if (CarriedAmmo > 0)
+	if (CombatState != ECombatState::ECS_Reloading && CarriedAmmo > 0)
 	{
 		ServerReload();
+	}
+}
+
+void UCombatComponent::FinishReloading()
+{
+	if(Character == nullptr) return;
+	if (Character->HasAuthority())
+	{
+		CombatState = ECombatState::ECS_Unoccupied;
 	}
 }
 
