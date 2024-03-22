@@ -41,7 +41,7 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// 角色速度方向与控制器方向的差，角色装备武器后，角色朝向始终与控制器方向一致
 	// 玩家按右键时差值为90 按左键时差值为-90 按后键时差值为180或-180 strafe
 	// zero, if our character is looking straight towards the world x axis direction and increase as we rotate to right
-	FRotator AimRotation = BlasterCharacter->GetBaseAimRotation();
+	FRotator AimRotation = BlasterCharacter->GetBaseAimRotation();// Camera rotation
 	FRotator MovementRotation = UKismetMathLibrary::MakeRotFromX(BlasterCharacter->GetVelocity());
 	// if (!BlasterCharacter->HasAuthority() && !BlasterCharacter->IsLocallyControlled())
 	// {

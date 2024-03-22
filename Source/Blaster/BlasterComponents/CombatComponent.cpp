@@ -112,7 +112,7 @@ void UCombatComponent::FireTimerFinished()
 bool UCombatComponent::CanFire()
 {
 	if(EquippedWeapon == nullptr) return false;
-	return !EquippedWeapon->IsEmpty() && bCanFire;
+	return !EquippedWeapon->IsEmpty() && bCanFire && CombatState == ECombatState::ECS_Unoccupied;
 }
 
 void UCombatComponent::OnRep_CarriedAmmo()
@@ -137,7 +137,7 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
 	if(EquippedWeapon == nullptr) return;
-	if (Character)
+	if (Character && CombatState == ECombatState::ECS_Unoccupied)
 	{
 		Character->PlayFireMontage(bAiming);
 		// simulated proxies are not going to have a viewport and traceundercorssharis will not give us valid hit target on those simulated proxies
@@ -201,12 +201,23 @@ void UCombatComponent::Reload()
 	}
 }
 
+/**
+ * @brief AnimNotify
+ */
 void UCombatComponent::FinishReloading()
 {
 	if(Character == nullptr) return;
 	if (Character->HasAuthority())
 	{
 		CombatState = ECombatState::ECS_Unoccupied;
+	}
+	// hold pressed fire button while reloading
+	// 若此方法在Client执行，会出现 CombatState 变量还未被同步为 ECS_Unoccupied 的情况
+	// 此时 Fire 调用无效，可以在 CombatState 变量被同步为 ECS_Unoccupied 时，再次判断，若玩家仍然长按开火键，则调用 Fire
+	// 这些 case 处理的目的是：玩家可能会在 Reloading 中，长按开火键，若不处理，则会出现玩家 Reloading 时长按开火键一直不放，直到 Reloading 结束也无响应的情况
+	if (bFireButtonPressed)
+	{
+		Fire();
 	}
 }
 
@@ -224,6 +235,12 @@ void UCombatComponent::OnRep_CombatState()
 	{
 	case ECombatState::ECS_Reloading:
 		HandleReload();
+		break;
+	case ECombatState::ECS_Unoccupied:
+		if (bFireButtonPressed)
+		{
+			Fire();
+		}
 		break;
 	}
 }
