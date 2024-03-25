@@ -54,6 +54,8 @@ protected:
 	void ServerReload();
 
 	void HandleReload();
+
+	int32 AmountToReload();
 	
 private:
 	UPROPERTY()

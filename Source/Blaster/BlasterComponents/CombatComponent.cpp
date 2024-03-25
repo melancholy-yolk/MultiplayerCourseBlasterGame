@@ -223,8 +223,16 @@ void UCombatComponent::FinishReloading()
 
 void UCombatComponent::ServerReload_Implementation()
 {
-	if (Character == nullptr) return;
+	if (Character == nullptr || EquippedWeapon == nullptr) return;
 
+	int32 ReloadAmount = AmountToReload();
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
+	{
+		CarriedAmmoMap[EquippedWeapon->GetWeaponType()] -= ReloadAmount;
+		CarriedAmmo = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+	}
+	EquippedWeapon->AddAmmo(-ReloadAmount);
+	
 	CombatState = ECombatState::ECS_Reloading;
 	HandleReload();
 }
@@ -248,6 +256,21 @@ void UCombatComponent::OnRep_CombatState()
 void UCombatComponent::HandleReload()
 {
 	Character->PlayReloadMontage();
+}
+
+int32 UCombatComponent::AmountToReload()
+{
+	if(EquippedWeapon == nullptr) return 0;
+
+	int32 RoomInMag = EquippedWeapon->GetMagazineCapacity() - EquippedWeapon->GetAmmo();
+	
+	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
+	{
+		int32 AmountCarried = CarriedAmmoMap[EquippedWeapon->GetWeaponType()];
+		int32 Least = FMath::Min(RoomInMag, AmountCarried);
+		return FMath::Clamp(RoomInMag, 0, Least);
+	}
+	return 0;
 }
 
 void UCombatComponent::OnRep_EquippedWeapon()
