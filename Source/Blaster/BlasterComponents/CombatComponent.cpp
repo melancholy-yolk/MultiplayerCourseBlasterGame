@@ -108,6 +108,10 @@ void UCombatComponent::FireTimerFinished()
 	{
 		Fire();
 	}
+	if(EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
 }
 
 bool UCombatComponent::CanFire()
@@ -174,6 +178,7 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	}
 	EquippedWeapon->SetOwner(Character);//会通知到client
 	EquippedWeapon->SetHUDAmmo();// 更新HUD显示子弹数量
+	EquippedWeapon->SetHUDWeaponType();
 
 	if (CarriedAmmoMap.Contains(EquippedWeapon->GetWeaponType()))
 	{ 
@@ -196,6 +201,11 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 			EquippedWeapon->EquipSound,
 			Character->GetActorLocation()
 		);
+	}
+
+	if(EquippedWeapon->IsEmpty())
+	{
+		Reload();
 	}
 }
 

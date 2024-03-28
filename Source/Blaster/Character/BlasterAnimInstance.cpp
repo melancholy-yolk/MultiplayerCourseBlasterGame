@@ -28,8 +28,8 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Velocity.Z = 0.f;
 	Speed = Velocity.Size();
 
-	bIsInAir = BlasterCharacter->GetMovementComponent()->IsFalling(); 
-	bIsAccelerating = Cast<UCharacterMovementComponent>(BlasterCharacter->GetMovementComponent())->GetCurrentAcceleration().Size() > 0.f ? true : false;
+	bIsInAir = BlasterCharacter->GetCharacterMovement()->IsFalling(); 
+	bIsAccelerating = BlasterCharacter->GetCharacterMovement()->GetCurrentAcceleration().Size() > 0.f ? true : false;
 	bWeaponEquipped = BlasterCharacter->IsWeaponEquipped();
 	EquippedWeapon = BlasterCharacter->GetEquippedWeapon();
 	bIsCrouched = BlasterCharacter->bIsCrouched;
@@ -43,11 +43,6 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// zero, if our character is looking straight towards the world x axis direction and increase as we rotate to right
 	FRotator AimRotation = BlasterCharacter->GetBaseAimRotation();// Camera rotation
 	FRotator MovementRotation = UKismetMathLibrary::MakeRotFromX(BlasterCharacter->GetVelocity());
-	// if (!BlasterCharacter->HasAuthority() && !BlasterCharacter->IsLocallyControlled())
-	// {
-	// 	UE_LOG(LogTemp, Warning, TEXT("AimRotation Yaw %f: "), AimRotation.Yaw);
-	// 	UE_LOG(LogTemp, Warning, TEXT("MovementRotation Yaw %f: "), MovementRotation.Yaw);
-	// }
 	FRotator DeltaRot = UKismetMathLibrary::NormalizedDeltaRotator(MovementRotation, AimRotation);// 控制BlendSpace2D的Horizontal Axis, 角色朝向前方, Strafing 向左或向右移动
 	DeltaRotation = FMath::RInterpTo(DeltaRotation, DeltaRot, DeltaSeconds, 6.f);
 	YawOffset = DeltaRotation.Yaw;
@@ -72,12 +67,6 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		BlasterCharacter->GetMesh()->TransformToBoneSpace(FName("hand_r"), LeftHandTransform.GetLocation(), FRotator::ZeroRotator, OutPosition, OutRotation);
 		LeftHandTransform.SetLocation(OutPosition);
 		LeftHandTransform.SetRotation(FQuat(OutRotation));
-
-		// 调整右手骨骼到目标位置
-		// FTransform RightHandTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("hand_r"), ERelativeTransformSpace::RTS_World);
-		// RightHandRotation = UKismetMathLibrary::FindLookAtRotation(
-		// 	RightHandTransform.GetLocation(),
-		// 	RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - BlasterCharacter->GetHitTarget()));
 		
 		if (BlasterCharacter->IsLocallyControlled())
 		{

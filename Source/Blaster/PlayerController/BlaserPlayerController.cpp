@@ -119,3 +119,26 @@ void ABlasterPlayerController::SetHUDCarriedAmmo(int32 Ammo)
 		BlasterHUD->CharacterOverlay->CarriedAmmoAmount->SetText(FText::FromString(AmmoText));
 	}
 }
+
+void ABlasterPlayerController::SetHUDWeaponTypeText(EWeaponType WeaponType)
+{
+	BlasterHUD = BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : BlasterHUD;
+
+	bool bHUDValid = BlasterHUD &&
+		BlasterHUD->CharacterOverlay &&
+			BlasterHUD->CharacterOverlay->WeaponTypeText;
+	
+	if (bHUDValid)
+	{
+		FString Str(TEXT(""));
+		switch (WeaponType)
+		{
+		case EWeaponType::EWT_AssaultRife:
+			Str = TEXT("AssaultRife");
+			break;
+		case EWeaponType::EWT_MAX: break;
+		default: Str = TEXT("");
+		}
+		BlasterHUD->CharacterOverlay->WeaponTypeText->SetText(FText::FromString(Str));
+	}
+}

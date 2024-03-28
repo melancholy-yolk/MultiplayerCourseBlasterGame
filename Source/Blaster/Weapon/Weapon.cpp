@@ -92,6 +92,19 @@ void AWeapon::SetHUDAmmo()
 	}
 }
 
+void AWeapon::SetHUDWeaponType()
+{
+	BlasterOwnerCharacter = BlasterOwnerCharacter == nullptr ? Cast<ABlasterCharacter>(GetOwner()) : BlasterOwnerCharacter;
+	if (BlasterOwnerCharacter)
+	{
+		BlasterOwnerController = BlasterOwnerController == nullptr ? Cast<ABlasterPlayerController>(BlasterOwnerCharacter->Controller) : BlasterOwnerController;
+		if (BlasterOwnerController)
+		{
+			BlasterOwnerController->SetHUDWeaponTypeText(WeaponType);
+		}
+	}
+}
+
 void AWeapon::SpendRound()
 {
 	UE_LOG(LogTemp, Warning, TEXT("AWeapon::SpendRound()"));
@@ -117,6 +130,7 @@ void AWeapon::OnRep_Owner()
 	else
 	{
 		SetHUDAmmo();
+		SetHUDWeaponType();
 	}
 }
 

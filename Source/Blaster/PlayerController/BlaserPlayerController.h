@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Blaster/Weapon/WeaponTypes.h"
 #include "GameFramework/PlayerController.h"
 #include "BlaserPlayerController.generated.h"
 
@@ -20,6 +21,7 @@ public:
 	void SetHUDDefeatedText(float Alpha);
 	void SetHUDWeaponAmmo(int32 Ammo);
 	void SetHUDCarriedAmmo(int32 Ammo);
+	void SetHUDWeaponTypeText(EWeaponType WeaponType);
 	
 	virtual void OnPossess(APawn* InPawn) override;
 protected:

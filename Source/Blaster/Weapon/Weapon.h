@@ -27,6 +27,7 @@ public:
 	virtual void OnRep_Owner() override;
 
 	void SetHUDAmmo();
+	void SetHUDWeaponType();
 	void ShowPickupWidget(bool bShowWidget);
 	virtual void Fire(const FVector& HitTarget);
 	void Dropped();
